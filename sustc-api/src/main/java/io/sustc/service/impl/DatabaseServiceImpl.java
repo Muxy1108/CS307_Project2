@@ -67,7 +67,7 @@ public class DatabaseServiceImpl implements DatabaseService {
         final int BATCH_SIZE = 5000;
 
         Connection conn = null;
-        try {
+        try{
             conn = dataSource.getConnection();
             conn.setAutoCommit(false);
 
@@ -83,7 +83,7 @@ public class DatabaseServiceImpl implements DatabaseService {
             createIndexes(conn);
         } catch (SQLException e) {
             log.error("Error importing data", e);
-            if (conn != null) {
+            if (conn != null){
                 try {
                     conn.rollback();
                 } catch (SQLException ex) {
@@ -91,8 +91,8 @@ public class DatabaseServiceImpl implements DatabaseService {
                 }
             }
         } finally {
-            if (conn != null) {
-                try {
+            if (conn != null){
+                try{
                     conn.setAutoCommit(true);
                     conn.close();
                 } catch (SQLException e) {
@@ -266,7 +266,7 @@ public class DatabaseServiceImpl implements DatabaseService {
         }
     }
 
-    private void createIndexes(Connection conn) {
+    private void createIndexes(Connection conn){
         String[] indexSqls = new String[]{
                 "CREATE INDEX IF NOT EXISTS idx_recipes_author ON recipes (AuthorId)",
                 "CREATE INDEX IF NOT EXISTS idx_reviews_recipe ON reviews (RecipeId)",
@@ -332,7 +332,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                         "    ReviewId BIGINT PRIMARY KEY, " +
                         "    RecipeId BIGINT NOT NULL, " +
                         "    AuthorId BIGINT NOT NULL, " +
-                        "    Rating INTEGER, " +
+                        "    Rating FLOAT, " +
                         "    Review TEXT, " +
                         "    DateSubmitted TIMESTAMP, " +
                         "    DateModified TIMESTAMP, " +
