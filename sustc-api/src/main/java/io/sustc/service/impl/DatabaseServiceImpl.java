@@ -1,26 +1,23 @@
 package io.sustc.service.impl;
 
+import io.sustc.dto.RecipeRecord;
 import io.sustc.dto.ReviewRecord;
 import io.sustc.dto.UserRecord;
-import io.sustc.dto.RecipeRecord;
 import io.sustc.service.DatabaseService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.BatchPreparedStatementSetter;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.PreparedStatement;
-import java.sql.SQLException;
-import java.util.*;
 import javax.sql.DataSource;
-import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -57,60 +54,37 @@ public class DatabaseServiceImpl implements DatabaseService {
             List<UserRecord> userRecords,
             List<RecipeRecord> recipeRecords) {
 
-        // ddl to create tables.
         createTables();
 
         if (userRecords == null) userRecords = Collections.emptyList();
         if (recipeRecords == null) recipeRecords = Collections.emptyList();
         if (reviewRecords == null) reviewRecords = Collections.emptyList();
 
-        final int BATCH_SIZE = 5000;
+        batchInsertUsers(userRecords);
+        batchInsertRecipes(recipeRecords);
+        batchInsertRecipeIngredients(recipeRecords);
+        batchInsertReviews(reviewRecords);
+        batchInsertReviewLikes(reviewRecords);
+        batchInsertUserFollows(userRecords);
 
-        Connection conn = null;
-        try{
-            conn = dataSource.getConnection();
-            conn.setAutoCommit(false);
-
-            batchInsertUsers(conn, userRecords, BATCH_SIZE);
-            batchInsertRecipes(conn, recipeRecords, BATCH_SIZE);
-            batchInsertRecipeIngredients(conn, recipeRecords, BATCH_SIZE);
-            batchInsertReviews(conn, reviewRecords, BATCH_SIZE);
-            batchInsertReviewLikes(conn, reviewRecords, BATCH_SIZE);
-            batchInsertUserFollows(conn, userRecords, BATCH_SIZE);
-
-            conn.commit();
-
-            createIndexes(conn);
-        } catch (SQLException e) {
-            log.error("Error importing data", e);
-            if (conn != null){
-                try {
-                    conn.rollback();
-                } catch (SQLException ex) {
-                    log.error("Error during rollback", ex);
-                }
-            }
-        } finally {
-            if (conn != null){
-                try{
-                    conn.setAutoCommit(true);
-                    conn.close();
-                } catch (SQLException e) {
-                    log.error("Error closing connection", e);
-                }
-            }
-        }
-
+        createIndexes();
     }
 
 
-    private void batchInsertUsers(Connection conn, List<UserRecord> users, int batchSize) throws SQLException {
-        String sql = "INSERT INTO users (AuthorId, AuthorName, Gender, Age, Followers, Following, Password, IsDeleted) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (AuthorId) DO NOTHING";
+    private void batchInsertUsers(List<UserRecord> users) {
+        if (users.isEmpty()) {
+            return;
+        }
 
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            int count = 0;
-            for (UserRecord u : users) {
+        String sql = "INSERT INTO users " +
+                "  (AuthorId, AuthorName, Gender, Age, Followers, Following, Password, IsDeleted) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?) " +
+                "ON CONFLICT (AuthorId) DO NOTHING;";
+
+        jdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
+            @Override
+            public void setValues(PreparedStatement ps, int i) throws SQLException {
+                UserRecord u = users.get(i);
                 ps.setLong(1, u.getAuthorId());
                 ps.setString(2, u.getAuthorName());
                 ps.setString(3, u.getGender());
@@ -119,25 +93,32 @@ public class DatabaseServiceImpl implements DatabaseService {
                 ps.setObject(6, u.getFollowing());
                 ps.setString(7, u.getPassword());
                 ps.setObject(8, u.isDeleted());
-                ps.addBatch();
-                count++;
-                if (count % batchSize == 0) {
-                    ps.executeBatch();
-                }
             }
-            ps.executeBatch();
-        }
+
+            @Override
+            public int getBatchSize() {
+                return users.size();
+            }
+        });
     }
 
-    private void batchInsertRecipes(Connection conn, List<RecipeRecord> recipes, int batchSize) throws SQLException {
-        String sql = "INSERT INTO recipes (RecipeId, Name, AuthorId, CookTime, PrepTime, TotalTime, DatePublished, Description, " +
-                "RecipeCategory, AggregatedRating, ReviewCount, Calories, FatContent, SaturatedFatContent, CholesterolContent, " +
-                "SodiumContent, CarbohydrateContent, FiberContent, SugarContent, ProteinContent, RecipeServings, RecipeYield) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (RecipeId) DO NOTHING";
+    private void batchInsertRecipes(List<RecipeRecord> recipes) {
+        if (recipes.isEmpty()) {
+            return;
+        }
 
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            int count = 0;
-            for (RecipeRecord r : recipes) {
+        String sql = "INSERT INTO recipes " +
+                "  (RecipeId, Name, AuthorId, CookTime, PrepTime, TotalTime, DatePublished, Description, " +
+                "   RecipeCategory, AggregatedRating, ReviewCount, Calories, FatContent, SaturatedFatContent, " +
+                "   CholesterolContent, SodiumContent, CarbohydrateContent, FiberContent, SugarContent, " +
+                "   ProteinContent, RecipeServings, RecipeYield) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) " +
+                "ON CONFLICT (RecipeId) DO NOTHING;";
+
+        jdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
+            @Override
+            public void setValues(PreparedStatement ps, int i) throws SQLException {
+                RecipeRecord r = recipes.get(i);
                 ps.setLong(1, r.getRecipeId());
                 ps.setString(2, r.getName());
                 ps.setLong(3, r.getAuthorId());
@@ -158,45 +139,69 @@ public class DatabaseServiceImpl implements DatabaseService {
                 ps.setObject(18, r.getFiberContent());
                 ps.setObject(19, r.getSugarContent());
                 ps.setObject(20, r.getProteinContent());
-                ps.setString(21, String.valueOf(r.getRecipeServings()));
+                ps.setString(21, r.getRecipeServings());
                 ps.setString(22, r.getRecipeYield());
-
-                ps.addBatch();
-                count++;
-                if (count % batchSize == 0) {
-                    ps.executeBatch();
-                }
             }
-            ps.executeBatch();
-        }
+
+            @Override
+            public int getBatchSize() {
+                return recipes.size();
+            }
+        });
     }
 
-    private void batchInsertRecipeIngredients(Connection conn, List<RecipeRecord> recipes, int batchSize) throws SQLException {
-        String sql = "INSERT INTO recipe_ingredients (RecipeId, IngredientPart) VALUES (?, ?) ON CONFLICT DO NOTHING";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            int count = 0;
-            for (RecipeRecord r : recipes) {
-                if (r.getRecipeIngredientParts() == null) continue;
-                for (String ingredient : r.getRecipeIngredientParts()) {
-                    ps.setLong(1, r.getRecipeId());
-                    ps.setString(2, ingredient);
-                    ps.addBatch();
-                    count++;
-                    if (count % batchSize == 0) {
-                        ps.executeBatch();
-                    }
-                }
-            }
-            ps.executeBatch();
+    private void batchInsertRecipeIngredients(List<RecipeRecord> recipes) {
+        if (recipes.isEmpty()) {
+            return;
         }
+
+        String sql = "INSERT INTO recipe_ingredients (RecipeId, IngredientPart) " +
+                "VALUES (?, ?) " +
+                "ON CONFLICT DO NOTHING;";
+
+        List<Object[]> ingredientPairs = new ArrayList<>();
+        for (RecipeRecord recipe : recipes) {
+            if (recipe.getRecipeIngredientParts() == null) {
+                continue;
+            }
+            for (String ingredient : recipe.getRecipeIngredientParts()) {
+                ingredientPairs.add(new Object[]{recipe.getRecipeId(), ingredient});
+            }
+        }
+
+        if (ingredientPairs.isEmpty()) {
+            return;
+        }
+
+        jdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
+            @Override
+            public void setValues(PreparedStatement ps, int i) throws SQLException {
+                Object[] pair = ingredientPairs.get(i);
+                ps.setLong(1, (Long) pair[0]);
+                ps.setString(2, (String) pair[1]);
+            }
+
+            @Override
+            public int getBatchSize() {
+                return ingredientPairs.size();
+            }
+        });
     }
 
-    private void batchInsertReviews(Connection conn, List<ReviewRecord> reviews, int batchSize) throws SQLException {
-        String sql = "INSERT INTO reviews (ReviewId, RecipeId, AuthorId, Rating, Review, DateSubmitted, DateModified) " +
-                "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (ReviewId) DO NOTHING";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            int count = 0;
-            for (ReviewRecord r : reviews) {
+    private void batchInsertReviews(List<ReviewRecord> reviews) {
+        if (reviews.isEmpty()) {
+            return;
+        }
+
+        String sql = "INSERT INTO reviews " +
+                "  (ReviewId, RecipeId, AuthorId, Rating, Review, DateSubmitted, DateModified) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?) " +
+                "ON CONFLICT (ReviewId) DO NOTHING;";
+
+        jdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
+            @Override
+            public void setValues(PreparedStatement ps, int i) throws SQLException {
+                ReviewRecord r = reviews.get(i);
                 ps.setLong(1, r.getReviewId());
                 ps.setLong(2, r.getRecipeId());
                 ps.setLong(3, r.getAuthorId());
@@ -204,84 +209,101 @@ public class DatabaseServiceImpl implements DatabaseService {
                 ps.setString(5, r.getReview());
                 ps.setTimestamp(6, r.getDateSubmitted());
                 ps.setTimestamp(7, r.getDateModified());
-                ps.addBatch();
-                count++;
-                if (count % batchSize == 0) {
-                    ps.executeBatch();
-                }
             }
-            ps.executeBatch();
-        }
+
+            @Override
+            public int getBatchSize() {
+                return reviews.size();
+            }
+        });
     }
 
-    private void batchInsertReviewLikes(Connection conn, List<ReviewRecord> reviews, int batchSize) throws SQLException {
-        String sql = "INSERT INTO review_likes (ReviewId, AuthorId) VALUES (?, ?) ON CONFLICT DO NOTHING";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            int count = 0;
-            for (ReviewRecord r : reviews) {
-                if (r.getLikes() == null) continue;
-                for (long userId : r.getLikes()) {
-                    ps.setLong(1, r.getReviewId());
-                    ps.setLong(2, userId);
-                    ps.addBatch();
-                    count++;
-                    if (count % batchSize == 0) {
-                        ps.executeBatch();
-                    }
-                }
-            }
-            ps.executeBatch();
+    private void batchInsertReviewLikes(List<ReviewRecord> reviews) {
+        if (reviews.isEmpty()) {
+            return;
         }
+
+        String sql = "INSERT INTO review_likes (ReviewId, AuthorId) " +
+                "VALUES (?, ?) " +
+                "ON CONFLICT DO NOTHING;";
+
+        List<long[]> likePairs = reviews.stream()
+                .filter(r -> r.getLikes() != null && !r.getLikes().isEmpty())
+                .flatMap(r -> r.getLikes().stream().map(userId -> new long[]{r.getReviewId(), userId}))
+                .toList();
+
+        if (likePairs.isEmpty()) {
+            return;
+        }
+
+        jdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
+            @Override
+            public void setValues(PreparedStatement ps, int i) throws SQLException {
+                long[] pair = likePairs.get(i);
+                ps.setLong(1, pair[0]);
+                ps.setLong(2, pair[1]);
+            }
+
+            @Override
+            public int getBatchSize() {
+                return likePairs.size();
+            }
+        });
     }
 
-    private void batchInsertUserFollows(Connection conn, List<UserRecord> users, int batchSize) throws SQLException {
-        String sql = "INSERT INTO user_follows (FollowerId, FollowingId) VALUES (?, ?) ON CONFLICT DO NOTHING";
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            int count = 0;
-            for (UserRecord u : users) {
-                if (u.getFollowerUsers() != null) {
-                    for (long follower : u.getFollowerUsers()) {
-                        ps.setLong(1, follower);
-                        ps.setLong(2, u.getAuthorId());
-                        ps.addBatch();
-                        count++;
-                        if (count % batchSize == 0) {
-                            ps.executeBatch();
-                        }
-                    }
-                }
-                if (u.getFollowingUsers() != null) {
-                    for (long following : u.getFollowingUsers()) {
-                        ps.setLong(1, u.getAuthorId());
-                        ps.setLong(2, following);
-                        ps.addBatch();
-                        count++;
-                        if (count % batchSize == 0) {
-                            ps.executeBatch();
-                        }
-                    }
-                }
-            }
-            ps.executeBatch();
+    private void batchInsertUserFollows(List<UserRecord> users) {
+        if (users.isEmpty()) {
+            return;
         }
+
+        String sql = "INSERT INTO user_follows (FollowerId, FollowingId) " +
+                "VALUES (?, ?) " +
+                "ON CONFLICT DO NOTHING;";
+
+        List<long[]> followPairs = users.stream()
+                .flatMap(u -> {
+                    List<long[]> pairs = new ArrayList<>();
+                    if (u.getFollowerUsers() != null) {
+                        u.getFollowerUsers().forEach(follower -> pairs.add(new long[]{follower, u.getAuthorId()}));
+                    }
+                    if (u.getFollowingUsers() != null) {
+                        u.getFollowingUsers().forEach(following -> pairs.add(new long[]{u.getAuthorId(), following}));
+                    }
+                    return pairs.stream();
+                })
+                .toList();
+
+        if (followPairs.isEmpty()) {
+            return;
+        }
+
+        jdbcTemplate.batchUpdate(sql, new BatchPreparedStatementSetter() {
+            @Override
+            public void setValues(PreparedStatement ps, int i) throws SQLException {
+                long[] pair = followPairs.get(i);
+                ps.setLong(1, pair[0]);
+                ps.setLong(2, pair[1]);
+            }
+
+            @Override
+            public int getBatchSize() {
+                return followPairs.size();
+            }
+        });
     }
 
-    private void createIndexes(Connection conn){
+    private void createIndexes(){
         String[] indexSqls = new String[]{
-                "CREATE INDEX IF NOT EXISTS idx_recipes_author ON recipes (AuthorId)",
-                "CREATE INDEX IF NOT EXISTS idx_reviews_recipe ON reviews (RecipeId)",
-                "CREATE INDEX IF NOT EXISTS idx_reviews_author ON reviews (AuthorId)",
-                "CREATE INDEX IF NOT EXISTS idx_review_likes_review ON review_likes (ReviewId)",
-                "CREATE INDEX IF NOT EXISTS idx_review_likes_author ON review_likes (AuthorId)",
-                "CREATE INDEX IF NOT EXISTS idx_user_follows_follower ON user_follows (FollowerId)",
-                "CREATE INDEX IF NOT EXISTS idx_user_follows_following ON user_follows (FollowingId)"};
+                "CREATE INDEX IF NOT EXISTS idx_recipes_author ON recipes (AuthorId);",
+                "CREATE INDEX IF NOT EXISTS idx_reviews_recipe ON reviews (RecipeId);",
+                "CREATE INDEX IF NOT EXISTS idx_reviews_author ON reviews (AuthorId);",
+                "CREATE INDEX IF NOT EXISTS idx_review_likes_review ON review_likes (ReviewId);",
+                "CREATE INDEX IF NOT EXISTS idx_review_likes_author ON review_likes (AuthorId);",
+                "CREATE INDEX IF NOT EXISTS idx_user_follows_follower ON user_follows (FollowerId);",
+                "CREATE INDEX IF NOT EXISTS idx_user_follows_following ON user_follows (FollowingId);"};
 
-        try (java.sql.Statement stmt = conn.createStatement()) {
-            for (String sql : indexSqls) {
-                stmt.execute(sql);
-            }
-        } catch (SQLException e) {
-            log.error("Error creating indexes", e);
+        for (String sql : indexSqls) {
+            jdbcTemplate.execute(sql);
         }
     }
 
@@ -401,7 +423,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 "    END LOOP;\n" +
                 "END $$;\n";
 
-        try (Connection conn = dataSource.getConnection();
+        try (java.sql.Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.executeUpdate();
         } catch (SQLException e) {
@@ -413,7 +435,7 @@ public class DatabaseServiceImpl implements DatabaseService {
     public Integer sum(int a, int b) {
         String sql = "SELECT ?+?";
 
-        try (Connection conn = dataSource.getConnection();
+        try (java.sql.Connection conn = dataSource.getConnection();
              PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, a);
             stmt.setInt(2, b);
