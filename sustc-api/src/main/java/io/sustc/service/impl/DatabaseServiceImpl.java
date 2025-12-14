@@ -139,8 +139,8 @@ public class DatabaseServiceImpl implements DatabaseService {
                 ps.setObject(18, r.getFiberContent());
                 ps.setObject(19, r.getSugarContent());
                 ps.setObject(20, r.getProteinContent());
-                ps.setString(21, r.getRecipeServings());
-                ps.setString(22, r.getRecipeYield());
+ena                ps.setObject(21, r.getRecipeServings());
+                ps.setObject(22, r.getRecipeYield());
             }
 
             @Override
@@ -227,10 +227,17 @@ public class DatabaseServiceImpl implements DatabaseService {
                 "VALUES (?, ?) " +
                 "ON CONFLICT DO NOTHING;";
 
-        List<long[]> likePairs = reviews.stream()
-                .filter(r -> r.getLikes() != null && !r.getLikes().isEmpty())
-                .flatMap(r -> r.getLikes().stream().map(userId -> new long[]{r.getReviewId(), userId}))
-                .toList();
+        List<long[]> likePairs = new ArrayList<>();
+        for (ReviewRecord r : reviews) {
+            long[] likes = r.getLikes();
+            if (likes == null || likes.length == 0) {
+                continue;
+            }
+            for (long userId : likes) {
+                likePairs.add(new long[]{r.getReviewId(), userId});
+            }
+        }
+
 
         if (likePairs.isEmpty()) {
             return;
@@ -260,18 +267,23 @@ public class DatabaseServiceImpl implements DatabaseService {
                 "VALUES (?, ?) " +
                 "ON CONFLICT DO NOTHING;";
 
-        List<long[]> followPairs = users.stream()
-                .flatMap(u -> {
-                    List<long[]> pairs = new ArrayList<>();
-                    if (u.getFollowerUsers() != null) {
-                        u.getFollowerUsers().forEach(follower -> pairs.add(new long[]{follower, u.getAuthorId()}));
-                    }
-                    if (u.getFollowingUsers() != null) {
-                        u.getFollowingUsers().forEach(following -> pairs.add(new long[]{u.getAuthorId(), following}));
-                    }
-                    return pairs.stream();
-                })
-                .toList();
+        List<long[]> followPairs = new ArrayList<>();
+        for (UserRecord u : users) {
+            long[] followers = u.getFollowerUsers();
+            if (followers != null) {
+                for (long follower : followers) {
+                    followPairs.add(new long[]{follower, u.getAuthorId()});
+                }
+            }
+
+            long[] followings = u.getFollowingUsers();
+            if (followings != null) {
+                for (long following : followings) {
+                    followPairs.add(new long[]{u.getAuthorId(), following});
+                }
+            }
+        }
+
 
         if (followPairs.isEmpty()) {
             return;
