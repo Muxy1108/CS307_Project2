@@ -580,7 +580,7 @@ public class BenchmarkService {
                 if (Boolean.TRUE.equals(it.getValue())) {
                     pass.incrementAndGet();
                 } else {
-                    log.debug("Wrong result for {}: expected {}, got {}", args, "true", res);
+                    log.debug("Wrong result for {}: expected {}, got {}", args, "true or SecurityException", res);
                 }
             } catch (SecurityException e) {
                 if (Boolean.FALSE.equals(it.getValue())) {
@@ -608,7 +608,7 @@ public class BenchmarkService {
                  if (Boolean.TRUE.equals(it.getValue())) {
                      pass.incrementAndGet();
                  } else {
-                     log.debug("Wrong result for {}: expected {}, got {}", args, "true", res);
+                     log.debug("Wrong result for {}: expected {}, got {}", args, "true or exception", res);
                  }
              } catch (IllegalArgumentException | SecurityException illegalArgumentException) {
                  if (Boolean.FALSE.equals(it.getValue())) {
