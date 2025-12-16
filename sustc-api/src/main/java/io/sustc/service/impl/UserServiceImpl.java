@@ -81,7 +81,7 @@ public class UserServiceImpl implements UserService {
             }
 
             long newId;
-            try (PreparedStatement ps = conn.prepareStatement("SELECT COALESCE(MAX(\"AuthorId\"),0) + 1 FROM users")) {
+            try (PreparedStatement ps = conn.prepareStatement("SELECT COALESCE(MAX(\"authorid\"),0) + 1 FROM users")) {
                 try (var rs = ps.executeQuery()) {
                     if (!rs.next()) {
                         conn.rollback();

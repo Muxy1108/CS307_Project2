@@ -18,42 +18,50 @@ import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Slf4j
-public class ReviewServiceImpl implements ReviewService {
 
+public class ReviewServiceImpl implements ReviewService {
 
     @Override
     @Transactional
     public long addReview(AuthInfo auth, long recipeId, int rating, String review) {
-        return 0;
+        return -1L; // 表示失败
     }
 
     @Override
     @Transactional
     public void editReview(AuthInfo auth, long recipeId, long reviewId, int rating, String review) {
-        return ;
+        // do nothing
     }
 
     @Override
     @Transactional
     public void deleteReview(AuthInfo auth, long recipeId, long reviewId) {
-        return ;
+        // do nothing
     }
 
     @Override
     @Transactional
     public long likeReview(AuthInfo auth, long reviewId) {
-        return 0;
+        return -1L; // 表示失败/没变化
     }
 
     @Override
     @Transactional
     public long unlikeReview(AuthInfo auth, long reviewId) {
-        return 0;
+        return -1L;
     }
 
     @Override
     public PageResult<ReviewRecord> listByRecipe(long recipeId, int page, int size, String sort) {
-        return null;
+        int pageNo = Math.max(1, page);
+        int pageSize = Math.max(1, Math.min(size, 200));
+
+        return PageResult.<ReviewRecord>builder()
+                .items(java.util.Collections.emptyList())
+                .page(pageNo)
+                .size(pageSize)
+                .total(0)
+                .build();
     }
 
     @Override
@@ -61,5 +69,4 @@ public class ReviewServiceImpl implements ReviewService {
     public RecipeRecord refreshRecipeAggregatedRating(long recipeId) {
         return null;
     }
-
 }

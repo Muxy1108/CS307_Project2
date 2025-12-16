@@ -55,6 +55,9 @@ public class DatabaseServiceImpl implements DatabaseService {
             List<RecipeRecord> recipeRecords) {
 
         createTables();
+        log.info("db user = {}", jdbcTemplate.queryForObject("select current_user", String.class));
+        log.info("db name = {}", jdbcTemplate.queryForObject("select current_database()", String.class));
+
 
         if (userRecords == null) userRecords = Collections.emptyList();
         if (recipeRecords == null) recipeRecords = Collections.emptyList();
@@ -139,7 +142,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 ps.setObject(18, r.getFiberContent());
                 ps.setObject(19, r.getSugarContent());
                 ps.setObject(20, r.getProteinContent());
-ena                ps.setObject(21, r.getRecipeServings());
+                ps.setObject(21, r.getRecipeServings());
                 ps.setObject(22, r.getRecipeYield());
             }
 
