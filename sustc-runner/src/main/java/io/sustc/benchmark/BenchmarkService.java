@@ -454,7 +454,7 @@ public class BenchmarkService {
                 if (Objects.equals(it.getValue(), res)) {
                     pass.incrementAndGet();
                 } else {
-                    log.debug("Wrong answer for {}: expected {}, got {}", it.getKey(), it.getValue(), false);
+                    log.debug("Wrong answer for {}: expected {}, got {}", it.getKey(), it.getValue(), res);
                 }
             } catch (IllegalArgumentException illegalArgumentException) {
                 if (Objects.equals(it.getValue(), -1L)) {
@@ -488,7 +488,7 @@ public class BenchmarkService {
                 if (Objects.equals(it.getValue(), res)) {
                     pass.incrementAndGet();
                 } else {
-                    log.debug("Wrong answer for {}: expected {}, got {}", it.getKey(), it.getValue(), false);
+                    log.debug("Wrong answer for {}: expected {}, got {}", it.getKey(), it.getValue(), res);
                 }
             } catch (IllegalArgumentException illegalArgumentException) {
                 if (Objects.equals(it.getValue(), -1L)) {
