@@ -71,6 +71,10 @@ public class RecipeRecord implements Serializable {
 
     /**
      * Ingredients composition of this recipe
+     *
+     * <p>The ingredient parts <b>must be sorted</b> in
+     * <b>case-insensitive lexicographical order</b>
+     * (i.e., ordering is determined by {@code String::compareToIgnoreCase}).</p>
      */
     private String[] recipeIngredientParts;
 
