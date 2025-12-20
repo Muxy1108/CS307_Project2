@@ -55,8 +55,8 @@ public class DatabaseServiceImpl implements DatabaseService {
             List<RecipeRecord> recipeRecords) {
 
         createTables();
-        log.info("db user = {}", jdbcTemplate.queryForObject("select current_user", String.class));
-        log.info("db name = {}", jdbcTemplate.queryForObject("select current_database()", String.class));
+//        log.info("db user = {}", jdbcTemplate.queryForObject("select current_user", String.class));
+//        log.info("db name = {}", jdbcTemplate.queryForObject("select current_database()", String.class));
 
 
         if (userRecords == null) userRecords = Collections.emptyList();
