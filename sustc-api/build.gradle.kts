@@ -16,6 +16,7 @@ dependencies {
     implementation("com.opencsv:opencsv:5.7.1")
 
     implementation("org.furyio:fury-core:0.3.1")
+    "developmentOnly"("org.springframework.boot:spring-boot-devtools")
 
     // You may add any utility library you want to use, such as guava.
     // ORM libraries are prohibited in this project.

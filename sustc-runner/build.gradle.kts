@@ -25,6 +25,13 @@ dependencies {
 
     // 添加OpenCSV依赖
     implementation("com.opencsv:opencsv:5.7.1")
+
+    implementation("org.springframework.boot:spring-boot-starter-web")
+    // 2) 参数校验（可选但推荐）
+    implementation("org.springframework.boot:spring-boot-starter-validation")
+    // 3) Swagger UI（强烈推荐，用于展示 2.4）
+    implementation("org.springdoc:springdoc-openapi-ui:1.7.0")
+
 }
 
 tasks.withType<JavaExec> {

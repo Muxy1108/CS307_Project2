@@ -1,9 +1,10 @@
 spring:
+  profiles:
+    default: benchmark   # 默认还是跑 benchmark，保证原评测不受影响
   datasource:
-    url: jdbc:postgresql://localhost:5432/sustc  # change this to your own jdbc url
-    username: sustc  # change this to your own username (avoid using a superuser)
-    password: sustec  # change this to your own password
-
+    url: jdbc:postgresql://localhost:5432/sustc
+    username: sustc
+    password: sustec
     hikari:
       connection-timeout: 180000
       leak-detection-threshold: 120000
@@ -14,7 +15,31 @@ logging:
     io.sustc: debug
 
 ---
+# ========== benchmark 模式：不启动 Web 容器 ==========
+spring:
+  config:
+    activate:
+      on-profile: benchmark
+  main:
+    web-application-type: none
 
 benchmark:
   data-path: data
   student-mode: true
+
+---
+# ========== server 模式：启动 REST 服务 ==========
+spring:
+  config:
+    activate:
+      on-profile: server
+  main:
+    web-application-type: servlet
+
+server:
+  port: 8080
+
+logging:
+  level:
+    root: info
+    io.sustc: info
