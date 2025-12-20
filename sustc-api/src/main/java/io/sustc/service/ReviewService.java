@@ -50,7 +50,7 @@ public interface ReviewService {
      *
      * @throws SecurityException if the user identity in {@code auth} is invalid or inactive
      */
-    long addReview(AuthInfo auth, long recipeId, int rating, String review);
+    long addReview(AuthInfo auth, long recipeId, double rating, String review);
 
     /**
      * Edits an existing review belonging to a given recipe.
