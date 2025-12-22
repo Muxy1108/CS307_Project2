@@ -38,6 +38,7 @@ public class UserServiceImpl implements UserService {
 
     private static final String GENDER_MALE = "Male";
     private static final String GENDER_FEMALE = "Female";
+    private static final String GENDER_UNKNOWN = "Unknown";
 
     @Override
     public long register(RegisterUserReq req) {
@@ -57,6 +58,8 @@ public class UserServiceImpl implements UserService {
             genderStr = GENDER_MALE;
         } else if (req.getGender() == RegisterUserReq.Gender.FEMALE) {
             genderStr = GENDER_FEMALE;
+        } else if (req.getGender() == RegisterUserReq.Gender.UNKNOWN) {
+            genderStr = GENDER_UNKNOWN;
         } else {
             return -1;
         }
@@ -287,7 +290,7 @@ public class UserServiceImpl implements UserService {
         if (gender == null && age == null) {
             return;
         }
-        if (gender != null && !GENDER_MALE.equals(gender) && !GENDER_FEMALE.equals(gender)) {
+        if (gender != null && !GENDER_UNKNOWN.equals(gender) && !GENDER_MALE.equals(gender) && !GENDER_FEMALE.equals(gender)) {
             throw new IllegalArgumentException("Invalid gender");
         }
         if (age != null && age <= 0) {
