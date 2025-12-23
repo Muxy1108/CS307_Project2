@@ -65,6 +65,13 @@ public class DatabaseServiceImpl implements DatabaseService {
 
         batchInsertUsers(userRecords);
         batchInsertRecipes(recipeRecords);
+
+        // ===== Add this block: sync sequence to imported max(recipeid) =====
+        jdbcTemplate.queryForObject(
+                "SELECT setval('recipe_id_seq', (SELECT COALESCE(MAX(recipeid), 0) FROM recipes));",
+                Long.class
+        );
+
         batchInsertRecipeIngredients(recipeRecords);
         batchInsertReviews(reviewRecords);
         batchInsertReviewLikes(reviewRecords);
@@ -329,7 +336,7 @@ public class DatabaseServiceImpl implements DatabaseService {
                 "CREATE TABLE IF NOT EXISTS users (" +
                         "    AuthorId BIGINT PRIMARY KEY, " +
                         "    AuthorName VARCHAR(255) NOT NULL, " +
-                        "    Gender VARCHAR(10) CHECK (Gender IN ('Male', 'Female')), " +
+                        "    Gender VARCHAR(10) CHECK (Gender IN ('Male', 'Female', 'Unknown')), " +
                         "    Age INTEGER CHECK (Age > 0), " +
                         "    Followers INTEGER DEFAULT 0 CHECK (Followers >= 0), " +
                         "    Following INTEGER DEFAULT 0 CHECK (Following >= 0), " +
@@ -408,6 +415,11 @@ public class DatabaseServiceImpl implements DatabaseService {
         for (String sql : createTableSQLs) {
             jdbcTemplate.execute(sql);
         }
+
+        jdbcTemplate.execute("CREATE SEQUENCE IF NOT EXISTS recipe_id_seq;");
+        jdbcTemplate.execute("ALTER TABLE recipes ALTER COLUMN recipeid SET DEFAULT nextval('recipe_id_seq');");
+        jdbcTemplate.execute("ALTER SEQUENCE recipe_id_seq OWNED BY recipes.recipeid;");
+
     }
 
 
