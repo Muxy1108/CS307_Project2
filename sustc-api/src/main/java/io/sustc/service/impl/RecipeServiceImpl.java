@@ -137,7 +137,7 @@ public class RecipeServiceImpl implements RecipeService {
             List<String> ingredients = jdbcTemplate.query(
                     "SELECT ingredientpart FROM recipe_ingredients " +
                             "WHERE recipeid = ? " +
-                            "ORDER BY ingredientpart",
+                            "ORDER BY ingredientpart ASC",
                     (rs, rowNum) -> rs.getString("ingredientpart"),
                     recipeId
             );
@@ -231,32 +231,41 @@ public class RecipeServiceImpl implements RecipeService {
     @Transactional
     public long createRecipe(RecipeRecord dto, AuthInfo auth) {
         long authorId = requireActiveUser(auth);
+
         if (dto == null || !StringUtils.hasText(dto.getName())) {
-            throw new IllegalArgumentException("Recipe name cannot be empty");
+            return -1;
         }
 
-        long recipeId = dto.getRecipeId() > 0 ? dto.getRecipeId() : generateRecipeId();
-        Timestamp datePublished = dto.getDatePublished() != null
+        // If caller provides id, use it; otherwise allocate via sequence (recommended)
+        Long recipeId = (dto.getRecipeId() > 0) ? dto.getRecipeId()
+                : jdbcTemplate.queryForObject("SELECT nextval('recipe_id_seq')", Long.class);
+
+        Timestamp datePublished = (dto.getDatePublished() != null)
                 ? dto.getDatePublished()
                 : new Timestamp(System.currentTimeMillis());
 
-        jdbcTemplate.update(
+
+        // Insert; if conflict happens, RETURNING yields 0 rows -> return -1 (no exception)
+        List<Long> inserted = jdbcTemplate.query(
                 "INSERT INTO recipes (recipeid, name, authorid, cooktime, preptime, totaltime, " +
                         "datepublished, description, recipecategory, aggregatedrating, reviewcount, " +
                         "calories, fatcontent, saturatedfatcontent, cholesterolcontent, sodiumcontent, " +
                         "carbohydratecontent, fibercontent, sugarcontent, proteincontent, " +
                         "recipeservings, recipeyield) " +
-                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) " +
+                        "ON CONFLICT (recipeid) DO NOTHING " +
+                        "RETURNING recipeid",
+                (rs, rn) -> rs.getLong(1),
                 recipeId,
-                dto.getName(),
+                dto.getName().trim(),
                 authorId,
                 dto.getCookTime(),
                 dto.getPrepTime(),
                 dto.getTotalTime(),
-                datePublished,
+                datePublished,          // keep null if null
                 dto.getDescription(),
                 dto.getRecipeCategory(),
-                null,
+                0.0,                             // safer than NULL for filtering
                 0,
                 dto.getCalories(),
                 dto.getFatContent(),
@@ -271,8 +280,30 @@ public class RecipeServiceImpl implements RecipeService {
                 dto.getRecipeYield()
         );
 
+        if (inserted.isEmpty()) {
+            return -1;
+        }
+
+        // Insert ingredients only if recipe insert succeeded
+        String[] parts = dto.getRecipeIngredientParts();
+        if (parts != null && parts.length > 0) {
+            List<Object[]> batch = new ArrayList<>();
+            for (String p : parts) {
+                if (StringUtils.hasText(p)) batch.add(new Object[]{recipeId, p});
+            }
+            if (!batch.isEmpty()) {
+                jdbcTemplate.batchUpdate(
+                        "INSERT INTO recipe_ingredients (recipeid, ingredientpart) VALUES (?, ?)" +
+                                "ON CONFLICT DO NOTHING",
+                        batch
+                );
+            }
+        }
+
         return recipeId;
     }
+
+
 
     @Override
     @Transactional
@@ -303,6 +334,11 @@ public class RecipeServiceImpl implements RecipeService {
     @Override
     @Transactional
     public void updateTimes(AuthInfo auth, long recipeId, String cookTimeIso, String prepTimeIso) {
+
+        if (cookTimeIso == null && prepTimeIso == null) {
+            return;
+        }
+
         if (recipeId <= 0) {
             throw new IllegalArgumentException("Invalid recipe id");
         }
@@ -418,23 +454,27 @@ public class RecipeServiceImpl implements RecipeService {
     }
 
     private long requireActiveUser(AuthInfo auth) {
-        if (auth == null) {
+        if (auth == null || auth.getAuthorId() <= 0 || !StringUtils.hasText(auth.getPassword())) {
             throw new SecurityException("Invalid auth");
         }
         try {
-            Map<String, Object> user = jdbcTemplate.queryForMap(
-                    "SELECT authorid, isdeleted FROM users WHERE authorid = ?",
+            Map<String, Object> row = jdbcTemplate.queryForMap(
+                    "SELECT authorid, password, isdeleted FROM users WHERE authorid = ?",
                     auth.getAuthorId()
             );
-            Boolean deleted = (Boolean) user.get("isdeleted");
-            if (Boolean.TRUE.equals(deleted)) {
+            if (Boolean.TRUE.equals(row.get("isdeleted"))) {
                 throw new SecurityException("Inactive user");
             }
-            return ((Number) user.get("authorid")).longValue();
+            String dbPwd = (String) row.get("password");
+            if (dbPwd == null || !dbPwd.equals(auth.getPassword())) {
+                throw new SecurityException("Wrong password");
+            }
+            return ((Number) row.get("authorid")).longValue();
         } catch (EmptyResultDataAccessException e) {
             throw new SecurityException("User not found");
         }
     }
+
 
     private Duration parseDuration(String iso) {
         // 空字符串、全是空格、一律视为 0 时长
