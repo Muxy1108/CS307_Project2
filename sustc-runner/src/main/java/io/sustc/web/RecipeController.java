@@ -34,9 +34,9 @@ public class RecipeController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) Double minRating,
-            @RequestParam int page,
-            @RequestParam int size,
-            @RequestParam(required = false) String sort
+            @RequestParam(defaultValue = "1") int page,
+            @RequestParam(defaultValue = "20") int size,
+            @RequestParam(required = false, defaultValue = "datePublished:desc") String sort
     ) {
         return recipeService.searchRecipes(keyword, category, minRating, page, size, sort);
     }
