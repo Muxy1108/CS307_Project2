@@ -185,147 +185,143 @@ public class UserServiceImpl implements UserService {
     @Override
     public boolean follow(AuthInfo auth, long followeeId) {
         long followerId = validateActiveUser(auth);
+
+        if (followeeId <= 0) {
+            throw new IllegalArgumentException("Invalid followeeId");
+        }
         if (followerId == followeeId) {
-            throw new SecurityException("Cannot follow self");
+            throw new IllegalArgumentException("Cannot follow self");
         }
 
-        // 先校验 followee 是否存在且未删除
         Boolean followeeDeleted;
         try {
             followeeDeleted = jdbcTemplate.queryForObject(
                     "SELECT IsDeleted FROM users WHERE AuthorId = ?",
                     Boolean.class,
-                    followeeId);
+                    followeeId
+            );
         } catch (EmptyResultDataAccessException e) {
-            // followee 不存在：按照 benchmark 允许的语义，抛 SecurityException
-            throw new SecurityException("Followee not found");
+            throw new IllegalArgumentException("Followee not found");
         }
-
         if (Boolean.TRUE.equals(followeeDeleted)) {
-            // followee 已删除：视为无效目标，也抛 SecurityException
-            throw new SecurityException("Followee is deleted");
+            throw new IllegalArgumentException("Followee is deleted");
         }
 
-        // 正常 toggle 逻辑保持不变：已关注 -> 取消关注并返回 false；否则插入并返回 true
-        Integer exists = jdbcTemplate.queryForObject(
-                "SELECT COUNT(1) FROM user_follows WHERE FollowerId = ? AND FollowingId = ?",
-                Integer.class,
-                followerId, followeeId);
+        // Idempotent insert: insert only if not exists (no unique constraint required)
+        int inserted = jdbcTemplate.update(
+                "INSERT INTO user_follows (FollowerId, FollowingId) " +
+                        "SELECT ?, ? " +
+                        "WHERE NOT EXISTS (" +
+                        "  SELECT 1 FROM user_follows WHERE FollowerId = ? AND FollowingId = ?" +
+                        ")",
+                followerId, followeeId, followerId, followeeId
+        );
 
-        if (exists != null && exists > 0) {
-            jdbcTemplate.update(
-                    "DELETE FROM user_follows WHERE FollowerId = ? AND FollowingId = ?",
-                    followerId, followeeId);
-            return false;
-        } else {
-            jdbcTemplate.update(
-                    "INSERT INTO user_follows (FollowerId, FollowingId) VALUES (?, ?)",
-                    followerId, followeeId);
-            return true;
-        }
+        return inserted > 0; // true only when it was newly followed
     }
+
 
 
     @Override
     public UserRecord getById(long userId) {
         try {
-            // 把 password / isdeleted 一并查出来
-            Map<String, Object> user = jdbcTemplate.queryForMap(
-                    "SELECT AuthorId, AuthorName, Gender, Age, Password, IsDeleted " +
-                            "FROM users WHERE AuthorId = ?",
-                    userId);
+            return jdbcTemplate.queryForObject(
+                    "SELECT u.AuthorId, u.AuthorName, u.Gender, u.Age, u.Password, u.IsDeleted, " +
+                            "       COALESCE(fol.followers, 0) AS followers, " +
+                            "       COALESCE(fin.following, 0) AS following, " +
+                            "       COALESCE(fol.follower_users, ARRAY[]::BIGINT[]) AS follower_users, " +
+                            "       COALESCE(fin.following_users, ARRAY[]::BIGINT[]) AS following_users " +
+                            "FROM users u " +
+                            "LEFT JOIN (" +
+                            "    SELECT FollowingId AS uid, COUNT(*) AS followers, " +
+                            "           ARRAY_AGG(FollowerId ORDER BY FollowerId) AS follower_users " +
+                            "    FROM user_follows GROUP BY FollowingId" +
+                            ") fol ON fol.uid = u.AuthorId " +
+                            "LEFT JOIN (" +
+                            "    SELECT FollowerId AS uid, COUNT(*) AS following, " +
+                            "           ARRAY_AGG(FollowingId ORDER BY FollowingId) AS following_users " +
+                            "    FROM user_follows GROUP BY FollowerId" +
+                            ") fin ON fin.uid = u.AuthorId " +
+                            "WHERE u.AuthorId = ?",
+                    (rs, rowNum) -> {
+                        java.sql.Array a1 = rs.getArray("follower_users");
+                        java.sql.Array a2 = rs.getArray("following_users");
 
-            // 关注/粉丝数仍然用 user_follows 动态计算
-            Integer followers = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(1) FROM user_follows WHERE FollowingId = ?",
-                    Integer.class,
-                    userId);
-            Integer following = jdbcTemplate.queryForObject(
-                    "SELECT COUNT(1) FROM user_follows WHERE FollowerId = ?",
-                    Integer.class,
-                    userId);
+                        Long[] followerBox = (Long[]) a1.getArray();
+                        Long[] followingBox = (Long[]) a2.getArray();
 
-            // 粉丝列表：所有 FollowerId
-            java.util.List<Long> followerList = jdbcTemplate.queryForList(
-                    "SELECT FollowerId FROM user_follows WHERE FollowingId = ? ORDER BY FollowerId ASC",
-                    Long.class,
-                    userId);
-            long[] followerUsers = followerList.stream()
-                    .mapToLong(Long::longValue)
-                    .toArray();
+                        long[] followerUsers = new long[followerBox.length];
+                        for (int i = 0; i < followerBox.length; i++) followerUsers[i] = followerBox[i];
 
-            // 关注列表：所有 FollowingId
-            java.util.List<Long> followingList = jdbcTemplate.queryForList(
-                    "SELECT FollowingId FROM user_follows WHERE FollowerId = ? ORDER BY FollowingId ASC",
-                    Long.class,
-                    userId);
-            long[] followingUsers = followingList.stream()
-                    .mapToLong(Long::longValue)
-                    .toArray();
+                        long[] followingUsers = new long[followingBox.length];
+                        for (int i = 0; i < followingBox.length; i++) followingUsers[i] = followingBox[i];
 
-            String password = (String) user.get("password");
-            Boolean isDeleted = (Boolean) user.get("isdeleted");
-
-            return UserRecord.builder()
-                    .authorId(((Number) user.get("authorid")).longValue())
-                    .authorName((String) user.get("authorname"))
-                    .gender((String) user.get("gender"))
-                    .age(user.get("age") == null ? 0 : ((Number) user.get("age")).intValue())
-                    .followers(followers == null ? 0 : followers)
-                    .following(following == null ? 0 : following)
-                    .followerUsers(followerUsers)
-                    .followingUsers(followingUsers)
-                    .password(password)
-                    .isDeleted(isDeleted != null && isDeleted)
-                    .build();
+                        return UserRecord.builder()
+                                .authorId(rs.getLong("authorid"))
+                                .authorName(rs.getString("authorname"))
+                                .gender(rs.getString("gender"))
+                                .age(rs.getInt("age"))
+                                .followers(rs.getInt("followers"))
+                                .following(rs.getInt("following"))
+                                .followerUsers(followerUsers)
+                                .followingUsers(followingUsers)
+                                .password(rs.getString("password"))
+                                .isDeleted(rs.getBoolean("isdeleted"))
+                                .build();
+                    },
+                    userId
+            );
         } catch (EmptyResultDataAccessException e) {
             throw new IllegalArgumentException("User not found");
         }
     }
 
+    private String normalizeGender(String gender) {
+        if (gender == null) return null;
+        String g = gender.trim();
+        if (g.equalsIgnoreCase(GENDER_MALE)) return GENDER_MALE;
+        if (g.equalsIgnoreCase(GENDER_FEMALE)) return GENDER_FEMALE;
+        if (g.equalsIgnoreCase(GENDER_UNKNOWN)) return GENDER_UNKNOWN;
+        return null;
+    }
 
     @Override
     public void updateProfile(AuthInfo auth, String gender, Integer age) {
         long userId = validateActiveUser(auth);
-        if (gender == null && age == null) {
-            return;
-        }
-        if (gender != null && !GENDER_UNKNOWN.equals(gender) && !GENDER_MALE.equals(gender) && !GENDER_FEMALE.equals(gender)) {
+
+        String ng = normalizeGender(gender);
+        if (gender != null && ng == null) {
             throw new IllegalArgumentException("Invalid gender");
         }
         if (age != null && age <= 0) {
             throw new IllegalArgumentException("Invalid age");
         }
+        if (ng == null && age == null) {
+            return;
+        }
 
         StringBuilder sql = new StringBuilder("UPDATE users SET ");
         boolean hasPrev = false;
-        if (gender != null) {
+        if (ng != null) {
             sql.append("Gender = ?");
             hasPrev = true;
         }
         if (age != null) {
-            if (hasPrev) {
-                sql.append(", ");
-            }
+            if (hasPrev) sql.append(", ");
             sql.append("Age = ?");
         }
         sql.append(" WHERE AuthorId = ?");
 
-        try (Connection conn = Objects.requireNonNull(jdbcTemplate.getDataSource()).getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+        jdbcTemplate.update(con -> {
+            PreparedStatement ps = con.prepareStatement(sql.toString());
             int idx = 1;
-            if (gender != null) {
-                ps.setString(idx++, gender);
-            }
-            if (age != null) {
-                ps.setInt(idx++, age);
-            }
+            if (ng != null) ps.setString(idx++, ng);
+            if (age != null) ps.setInt(idx++, age);
             ps.setLong(idx, userId);
-            ps.executeUpdate();
-        } catch (SQLException e) {
-            log.error("Error updating profile", e);
-        }
+            return ps;
+        });
     }
+
 
     @Override
     public PageResult<FeedItem> feed(AuthInfo auth, int page, int size, String category) {
@@ -456,22 +452,31 @@ public class UserServiceImpl implements UserService {
     }
 
     private long validateActiveUser(AuthInfo auth) {
-        if (auth == null) {
+        if (auth == null || auth.getAuthorId() <= 0 || !StringUtils.hasText(auth.getPassword())) {
             throw new SecurityException("Invalid auth");
         }
+
         try {
-            Map<String, Object> user = jdbcTemplate.queryForMap(
-                    "SELECT AuthorId, IsDeleted FROM users WHERE AuthorId = ?",
-                    auth.getAuthorId());
-            Boolean deleted = (Boolean) user.get("isdeleted");
-            if (Boolean.TRUE.equals(deleted)) {
+            Map<String, Object> row = jdbcTemplate.queryForMap(
+                    "SELECT AuthorId, Password, IsDeleted FROM users WHERE AuthorId = ?",
+                    auth.getAuthorId()
+            );
+
+            if (Boolean.TRUE.equals(row.get("isdeleted"))) {
                 throw new SecurityException("Inactive user");
             }
-            return ((Number) user.get("authorid")).longValue();
+
+            String dbPwd = (String) row.get("password");
+            if (dbPwd == null || !dbPwd.equals(auth.getPassword())) {
+                throw new SecurityException("Wrong password");
+            }
+
+            return ((Number) row.get("authorid")).longValue();
         } catch (EmptyResultDataAccessException e) {
             throw new SecurityException("User not found");
         }
     }
+
 
     private Integer parseAge(String birthday) {
         if (!StringUtils.hasText(birthday)) {
