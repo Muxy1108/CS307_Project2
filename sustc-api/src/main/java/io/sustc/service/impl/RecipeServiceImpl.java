@@ -8,6 +8,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.core.ResultSetExtractor;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +20,7 @@ import java.sql.Timestamp;
 import java.time.Duration;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -116,6 +118,7 @@ public class RecipeServiceImpl implements RecipeService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public RecipeRecord getRecipeById(long recipeId) {
         if (recipeId <= 0) {
             throw new IllegalArgumentException("Invalid recipe id");
@@ -126,22 +129,26 @@ public class RecipeServiceImpl implements RecipeService {
                     "SELECT r.*, u.authorname " +
                             "FROM recipes r " +
                             "JOIN users u ON r.authorid = u.authorid " +
-                            "WHERE r.recipeid = ?",
+                            "WHERE r.recipeid = ? AND u.isdeleted = FALSE",
                     recipeRowMapper,
                     recipeId
             );
             if (record == null) {
                 return null;
             }
-            // 单条记录的 ingredients 单独查一条 SQL 即可，开销可以忽略
+            // Ingredients ordered in SQL to match CASE_INSENSITIVE_ORDER without extra sorts
             List<String> ingredients = jdbcTemplate.query(
                     "SELECT ingredientpart FROM recipe_ingredients " +
                             "WHERE recipeid = ? " +
-                            "ORDER BY ingredientpart ASC",
+                            "ORDER BY lower(ingredientpart), ingredientpart",
                     (rs, rowNum) -> rs.getString("ingredientpart"),
                     recipeId
             );
-            record.setRecipeIngredientParts(ingredients.toArray(new String[0]));
+            if (ingredients == null || ingredients.isEmpty()) {
+                record.setRecipeIngredientParts(null);
+            } else {
+                record.setRecipeIngredientParts(ingredients.toArray(new String[0]));
+            }
             return record;
         } catch (EmptyResultDataAccessException e) {
             return null;
@@ -149,6 +156,7 @@ public class RecipeServiceImpl implements RecipeService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public PageResult<RecipeRecord> searchRecipes(String keyword, String category, Double minRating,
                                                   Integer page, Integer size, String sort) {
         if (page == null || page < 1 || size == null || size <= 0) {
@@ -156,18 +164,18 @@ public class RecipeServiceImpl implements RecipeService {
         }
 
         StringBuilder where = new StringBuilder(" WHERE 1=1");
-        List<Object> params = new ArrayList<>();
+        List<Object> params = new ArrayList<>(4);
 
         // 注意都加上 r. 前缀
         if (StringUtils.hasText(keyword)) {
             where.append(" AND (r.name ILIKE ? OR r.description ILIKE ?)");
-            String kw = "%" + keyword + "%";
+            String kw = "%" + keyword.trim() + "%";
             params.add(kw);
             params.add(kw);
         }
         if (StringUtils.hasText(category)) {
             where.append(" AND r.recipecategory = ?");
-            params.add(category);
+            params.add(category.trim());
         }
         if (minRating != null) {
             where.append(" AND r.aggregatedrating >= ?");
@@ -176,19 +184,17 @@ public class RecipeServiceImpl implements RecipeService {
 
         String orderBy;
         if ("rating_desc".equalsIgnoreCase(sort)) {
-            // 先评分降序，再发布日期降序，最后 recipeid 升序
-            orderBy = " ORDER BY aggregatedrating DESC NULLS LAST, " +
-                    "datepublished DESC NULLS LAST, recipeid ASC";
+            orderBy = " ORDER BY r.aggregatedrating DESC NULLS LAST, r.recipeid DESC";
         } else if ("date_desc".equalsIgnoreCase(sort)) {
-            orderBy = " ORDER BY datepublished DESC NULLS LAST, recipeid ASC";
+            orderBy = " ORDER BY r.datepublished DESC NULLS LAST, r.recipeid DESC";
         } else if ("calories_asc".equalsIgnoreCase(sort)) {
-            orderBy = " ORDER BY calories ASC NULLS LAST, recipeid ASC";
+            orderBy = " ORDER BY r.calories ASC NULLS LAST, r.recipeid ASC";
         } else {
-            orderBy = " ORDER BY recipeid ASC";
+            orderBy = " ORDER BY r.recipeid ASC";
         }
 
 
-        String fromClause = " FROM recipes r JOIN users u ON r.authorid = u.authorid";
+        String fromClause = " FROM recipes r JOIN users u ON r.authorid = u.authorid AND u.isdeleted = FALSE";
 
         // 统计总数
         long total = Objects.requireNonNull(jdbcTemplate.queryForObject(
@@ -206,7 +212,8 @@ public class RecipeServiceImpl implements RecipeService {
                         orderBy +
                         " LIMIT ? OFFSET ?";
 
-        List<Object> pageParams = new ArrayList<>(params);
+        List<Object> pageParams = new ArrayList<>(params.size() + 2);
+        pageParams.addAll(params);
         pageParams.add(size);
         pageParams.add(offset);
 
@@ -287,13 +294,13 @@ public class RecipeServiceImpl implements RecipeService {
         // Insert ingredients only if recipe insert succeeded
         String[] parts = dto.getRecipeIngredientParts();
         if (parts != null && parts.length > 0) {
-            List<Object[]> batch = new ArrayList<>();
+            List<Object[]> batch = new ArrayList<>(parts.length);
             for (String p : parts) {
                 if (StringUtils.hasText(p)) batch.add(new Object[]{recipeId, p});
             }
             if (!batch.isEmpty()) {
                 jdbcTemplate.batchUpdate(
-                        "INSERT INTO recipe_ingredients (recipeid, ingredientpart) VALUES (?, ?)" +
+                        "INSERT INTO recipe_ingredients (recipeid, ingredientpart) VALUES (?, ?) " +
                                 "ON CONFLICT DO NOTHING",
                         batch
                 );
@@ -509,29 +516,36 @@ public class RecipeServiceImpl implements RecipeService {
         }
 
         // 构造 IN (?, ?, ?, ...)
-        StringBuilder inClause = new StringBuilder();
-        for (int i = 0; i < ids.size(); i++) {
-            if (i > 0) {
-                inClause.append(",");
-            }
-            inClause.append("?");
-        }
+        String inClause = String.join(",", Collections.nCopies(ids.size(), "?"));
 
         String sql =
                 "SELECT recipeid, ingredientpart " +
                         "FROM recipe_ingredients " +
                         "WHERE recipeid IN (" + inClause + ") " +
-                        "ORDER BY recipeid, ingredientpart";
+                        "ORDER BY recipeid, lower(ingredientpart), ingredientpart"; // pre-sorted to match CASE_INSENSITIVE_ORDER
 
-        List<Map<String, Object>> rows = jdbcTemplate.queryForList(sql, ids.toArray());
-
-        // 把 ingredient 按 recipeid 分组
-        Map<Long, List<String>> ingredientMap = new HashMap<>();
-        for (Map<String, Object> row : rows) {
-            Long rid = ((Number) row.get("recipeid")).longValue();
-            String part = (String) row.get("ingredientpart");
-            ingredientMap.computeIfAbsent(rid, k -> new ArrayList<>()).add(part);
-        }
+        Map<Long, List<String>> ingredientMap = jdbcTemplate.query(
+                sql,
+                ps -> {
+                    for (int i = 0; i < ids.size(); i++) {
+                        ps.setLong(i + 1, ids.get(i));
+                    }
+                },
+                (ResultSetExtractor<Map<Long, List<String>>>) rs -> {
+                    Map<Long, List<String>> map = new HashMap<>(ids.size() * 2);
+                    while (rs.next()) {
+                        long rid = rs.getLong("recipeid");
+                        String part = rs.getString("ingredientpart");
+                        List<String> list = map.get(rid);
+                        if (list == null) {
+                            list = new ArrayList<>(4);
+                            map.put(rid, list);
+                        }
+                        list.add(part);
+                    }
+                    return map;
+                }
+        );
 
         // 填回到每个 RecipeRecord
         for (RecipeRecord r : recipes) {
