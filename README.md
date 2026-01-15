@@ -1,6 +1,6 @@
 # 📺 SUSTech Database System Project 2
 
-## For your reference, this report got 95.45 (probably had gone through some mystical adjustments).
+## For your reference, this report got 95.45 (probably had gone through some mysterious adjustments).
 
 Descriptions below.
 
