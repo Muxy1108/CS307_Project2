@@ -1,5 +1,10 @@
 # 📺 SUSTech Database System Project 2
 
+## For your reference, this report got 95.45 (probably had gone through some mystical adjustments).
+
+Descriptions below.
+
+
 ![Course](https://img.shields.io/badge/sustech-cs307%2F213-blue)
 ![Project2](https://img.shields.io/badge/25_fall-project_2-green)
 
